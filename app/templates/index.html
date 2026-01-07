@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Church Slides Studio</title>
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div>
+          <p class="tag">Self-hosted bulletin to slide generator</p>
+          <h1>Church Slides Studio</h1>
+          <p class="subtitle">
+            Paste a bulletin, upload backgrounds, and export JPG slides (default 1920x1080)
+            with optional Ollama vision QA.
+          </p>
+        </div>
+        <div class="hero-card">
+          <h2>Quick Start</h2>
+          <ol>
+            <li>Paste bulletin text or upload a document.</li>
+            <li>Upload title & content backgrounds.</li>
+            <li>Generate slides and download the ZIP.</li>
+          </ol>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="panel">
+          <h3>Bulletin Input</h3>
+          <label class="field">
+            <span>Paste bulletin text</span>
+            <textarea id="bulletinText" placeholder="Paste the order of worship here..."></textarea>
+          </label>
+          <label class="field">
+            <span>Or upload a bulletin file (.txt, .docx)</span>
+            <input id="bulletinFile" type="file" accept=".txt,.docx" />
+          </label>
+          <label class="check">
+            <input id="verifyOllama" type="checkbox" />
+            Verify slides with Ollama vision model
+          </label>
+          <button id="generateBtn" class="primary">Generate Slides</button>
+          <p id="status" class="status"></p>
+        </section>
+
+        <section class="panel">
+          <h3>Backgrounds</h3>
+          <div class="field">
+            <span>Title background</span>
+            <div class="row">
+              <select id="titleBgSelect"></select>
+              <input id="titleBgUpload" type="file" accept="image/*" />
+            </div>
+          </div>
+          <div class="field">
+            <span>Content background</span>
+            <div class="row">
+              <select id="contentBgSelect"></select>
+              <input id="contentBgUpload" type="file" accept="image/*" />
+            </div>
+          </div>
+          <button id="refreshBackgrounds" class="ghost">Refresh Backgrounds</button>
+        </section>
+
+        <section class="panel">
+          <h3>Slide Settings</h3>
+          <label class="field">
+            <span>Slide width (px)</span>
+            <input id="slideWidth" type="number" min="1" step="1" />
+          </label>
+          <label class="field">
+            <span>Slide height (px)</span>
+            <input id="slideHeight" type="number" min="1" step="1" />
+          </label>
+          <p class="hint">Defaults to 1920x1080. Adjust layout boxes in data/settings.json if needed.</p>
+        </section>
+
+        <section class="panel">
+          <h3>Ollama Settings</h3>
+          <label class="field">
+            <span>Ollama base URL</span>
+            <input id="ollamaUrl" type="text" placeholder="http://localhost:11434" />
+          </label>
+          <label class="field">
+            <span>Vision model name</span>
+            <input id="ollamaModel" type="text" placeholder="llava" />
+          </label>
+          <label class="field">
+            <span>Verification prompt</span>
+            <textarea id="verifyPrompt" rows="3"></textarea>
+          </label>
+          <button id="saveSettings" class="ghost">Save Settings</button>
+          <p class="hint">Settings save to data/settings.json and can be overridden by .env.</p>
+        </section>
+
+        <section class="panel preview">
+          <h3>Preview & Downloads</h3>
+          <div class="actions">
+            <a id="downloadZip" class="primary" href="#" download>Download ZIP</a>
+            <span id="slideCount" class="badge">0 slides</span>
+          </div>
+          <div id="previewGrid" class="preview-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>
