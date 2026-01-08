@@ -254,8 +254,52 @@ button:hover,
   color: var(--muted);
 }
 
+.verification-details {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(15, 20, 30, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.verification-title {
+  font-family: var(--font-display);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  color: var(--accent-bright);
+}
+
+.verification-list {
+  margin: 6px 0 10px;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.small {
+  font-size: 0.7rem;
+  padding: 8px 12px;
+  letter-spacing: 0.08em;
+}
+
 .issue {
   color: var(--danger);
+}
+
+.pending {
+  color: var(--muted);
+}
+
+.ok {
+  color: var(--accent-bright);
 }
 
 @media (max-width: 980px) {

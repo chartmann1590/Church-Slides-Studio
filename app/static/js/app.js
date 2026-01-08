@@ -22,6 +22,13 @@ const els = {
 
 const state = {
   backgrounds: [],
+  slides: [],
+  verification: {},
+  jobId: null,
+  zipUrl: "",
+  verifyingSlide: null,
+  awaitingDecision: new Set(),
+  decisionResolvers: new Map(),
 };
 
 function setStatus(message, isError = false) {
@@ -36,6 +43,64 @@ async function fetchJson(url, options = {}) {
     throw new Error(text || `Request failed: ${response.status}`);
   }
   return response.json();
+}
+
+function markSlidesCache(slides) {
+  const stamp = Date.now();
+  slides.forEach((slide) => {
+    slide.cacheBust = stamp;
+  });
+}
+
+function waitForDecision(filename) {
+  return new Promise((resolve) => {
+    state.decisionResolvers.set(filename, resolve);
+  });
+}
+
+function resolveDecision(filename, action) {
+  const resolver = state.decisionResolvers.get(filename);
+  if (resolver) {
+    state.decisionResolvers.delete(filename);
+    state.awaitingDecision.delete(filename);
+    resolver(action);
+    renderSlides(state.slides, state.verification, state.zipUrl);
+  }
+}
+
+async function verifySlide(slide) {
+  try {
+    return await fetchJson(
+      `/api/jobs/${state.jobId}/slides/${encodeURIComponent(slide.filename)}/verify`,
+      { method: "POST" }
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [error.message || "Verification failed."],
+      recommendations: [],
+    };
+  }
+}
+
+async function recreateSlide(slide, result) {
+  const recommendations = result?.recommendations?.length
+    ? result.recommendations
+    : result?.issues || [];
+  const payload = { recommendations };
+  const response = await fetchJson(
+    `/api/jobs/${state.jobId}/slides/${encodeURIComponent(slide.filename)}/recreate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!response || !response.slide) {
+    throw new Error("Recreate response missing slide data.");
+  }
+  response.slide.cacheBust = Date.now();
+  return response.slide;
 }
 
 function populateSelect(select, items, type) {
@@ -134,7 +199,8 @@ function renderSlides(slides, verification, zipUrl) {
     const card = document.createElement("div");
     card.className = "preview-card";
     const img = document.createElement("img");
-    img.src = `${slide.url}?v=${Date.now()}`;
+    const cacheBust = slide.cacheBust || 0;
+    img.src = `${slide.url}?v=${cacheBust}`;
     img.alt = slide.filename;
     const meta = document.createElement("div");
     meta.className = "meta";
@@ -142,11 +208,15 @@ function renderSlides(slides, verification, zipUrl) {
     name.textContent = slide.filename;
     const status = document.createElement("span");
     const result = verification[slide.filename];
-    if (result && result.ok === false) {
+    if (state.verifyingSlide === slide.filename) {
+      status.textContent = "Verifying...";
+      status.className = "pending";
+    } else if (result && result.ok === false) {
       status.textContent = "Check";
       status.className = "issue";
     } else if (result && result.ok === true) {
       status.textContent = "OK";
+      status.className = "ok";
     } else {
       status.textContent = "";
     }
@@ -154,8 +224,129 @@ function renderSlides(slides, verification, zipUrl) {
     meta.appendChild(status);
     card.appendChild(img);
     card.appendChild(meta);
+
+    if (result && result.ok === false) {
+      const details = document.createElement("div");
+      details.className = "verification-details";
+      const issues = Array.isArray(result.issues)
+        ? result.issues
+        : typeof result.issues === "string" && result.issues.trim()
+          ? [result.issues]
+          : [];
+      const recommendations = Array.isArray(result.recommendations)
+        ? result.recommendations
+        : typeof result.recommendations === "string" &&
+            result.recommendations.trim()
+          ? [result.recommendations]
+          : [];
+      if (issues.length) {
+        const issuesLabel = document.createElement("div");
+        issuesLabel.className = "verification-title";
+        issuesLabel.textContent = "Issues";
+        const issuesList = document.createElement("ul");
+        issuesList.className = "verification-list";
+        issues.forEach((issue) => {
+          const item = document.createElement("li");
+          item.textContent = issue;
+          issuesList.appendChild(item);
+        });
+        details.appendChild(issuesLabel);
+        details.appendChild(issuesList);
+      }
+      if (recommendations.length) {
+        const recsLabel = document.createElement("div");
+        recsLabel.className = "verification-title";
+        recsLabel.textContent = "Recommendations";
+        const recsList = document.createElement("ul");
+        recsList.className = "verification-list";
+        recommendations.forEach((rec) => {
+          const item = document.createElement("li");
+          item.textContent = rec;
+          recsList.appendChild(item);
+        });
+        details.appendChild(recsLabel);
+        details.appendChild(recsList);
+      }
+      if (details.childElementCount > 0) {
+        card.appendChild(details);
+      }
+    }
+
+    if (state.awaitingDecision.has(slide.filename)) {
+      const actions = document.createElement("div");
+      actions.className = "card-actions";
+      const retryBtn = document.createElement("button");
+      retryBtn.className = "ghost small";
+      retryBtn.textContent = "Retry Verification";
+      retryBtn.addEventListener("click", () => resolveDecision(slide.filename, "retry"));
+      const recreateBtn = document.createElement("button");
+      recreateBtn.className = "ghost small";
+      recreateBtn.textContent = "Recreate Slide";
+      recreateBtn.addEventListener("click", () => resolveDecision(slide.filename, "recreate"));
+      const keepBtn = document.createElement("button");
+      keepBtn.className = "ghost small";
+      keepBtn.textContent = "Keep Slide";
+      keepBtn.addEventListener("click", () => resolveDecision(slide.filename, "skip"));
+      actions.appendChild(retryBtn);
+      actions.appendChild(recreateBtn);
+      actions.appendChild(keepBtn);
+      card.appendChild(actions);
+    }
     els.previewGrid.appendChild(card);
   });
+}
+
+async function verifySlidesSequentially(slides) {
+  if (!state.jobId || slides.length === 0) return;
+  const total = slides.length;
+  for (let index = 0; index < slides.length; index += 1) {
+    let currentSlide = slides[index];
+    let finished = false;
+    while (!finished) {
+      state.verifyingSlide = currentSlide.filename;
+      renderSlides(state.slides, state.verification, state.zipUrl);
+      setStatus(`Verifying slide ${index + 1} of ${total}...`);
+      const result = await verifySlide(currentSlide);
+      state.verification[currentSlide.filename] = result;
+      state.verifyingSlide = null;
+      renderSlides(state.slides, state.verification, state.zipUrl);
+      if (result.ok === true) {
+        finished = true;
+        continue;
+      }
+      state.awaitingDecision.add(currentSlide.filename);
+      renderSlides(state.slides, state.verification, state.zipUrl);
+      setStatus(`Slide ${currentSlide.filename} needs attention.`, true);
+      const decision = await waitForDecision(currentSlide.filename);
+      if (decision === "retry") {
+        continue;
+      }
+      if (decision === "recreate") {
+        try {
+          const updatedSlide = await recreateSlide(currentSlide, result);
+          const slideIndex = state.slides.findIndex(
+            (slide) => slide.filename === currentSlide.filename
+          );
+          if (slideIndex >= 0) {
+            state.slides[slideIndex] = {
+              ...state.slides[slideIndex],
+              ...updatedSlide,
+            };
+            currentSlide = state.slides[slideIndex];
+          }
+          state.verification[currentSlide.filename] = {};
+          renderSlides(state.slides, state.verification, state.zipUrl);
+        } catch (error) {
+          setStatus(error.message || "Failed to recreate slide.", true);
+        }
+        continue;
+      }
+      if (decision === "skip") {
+        finished = true;
+      }
+    }
+  }
+  setStatus("Verification complete.");
 }
 
 async function generateSlides() {
@@ -179,15 +370,29 @@ async function generateSlides() {
   if (els.contentBgSelect.value) {
     form.append("content_background", els.contentBgSelect.value);
   }
-  form.append("verify_with_ollama", els.verifyOllama.checked ? "true" : "false");
+  form.append(
+    "verify_with_ollama",
+    els.verifyOllama.checked ? "true" : "false"
+  );
 
   try {
     const result = await fetchJson("/api/generate", {
       method: "POST",
       body: form,
     });
-    renderSlides(result.slides, result.verification || {}, result.zip_url);
-    setStatus(`Generated ${result.slides.length} slides.`);
+    state.slides = result.slides || [];
+    markSlidesCache(state.slides);
+    state.verification = result.verification || {};
+    state.jobId = result.job_id;
+    state.zipUrl = result.zip_url;
+    state.verifyingSlide = null;
+    state.awaitingDecision.clear();
+    state.decisionResolvers.clear();
+    renderSlides(state.slides, state.verification, state.zipUrl);
+    setStatus(`Generated ${state.slides.length} slides.`);
+    if (els.verifyOllama.checked) {
+      await verifySlidesSequentially(state.slides);
+    }
   } catch (error) {
     setStatus(error.message || "Generation failed.", true);
   } finally {

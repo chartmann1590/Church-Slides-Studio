@@ -340,7 +340,17 @@ def render_slide_images(
             filename = f"{global_index:02d} {safe_label} {current_slide_index}.jpg"
             path = output_dir / filename
             image.save(path, format="JPEG", quality=92)
-            slides.append({"filename": filename, "path": str(path)})
+            slides.append(
+                {
+                    "filename": filename,
+                    "path": str(path),
+                    "kind": "title",
+                    "label": label,
+                    "title": title,
+                    "subtitle": subtitle,
+                    "body": [],
+                }
+            )
             global_index += 1
             current_slide_index += 1
             continue
@@ -388,8 +398,151 @@ def render_slide_images(
             filename = f"{global_index:02d} {safe_label} {current_slide_index}.jpg"
             path = output_dir / filename
             frame.save(path, format="JPEG", quality=92)
-            slides.append({"filename": filename, "path": str(path)})
+            page_lines = ["" if line["blank"] else line["text"] for line in page]
+            slides.append(
+                {
+                    "filename": filename,
+                    "path": str(path),
+                    "kind": "content",
+                    "label": label,
+                    "title": title,
+                    "subtitle": "",
+                    "body": page_lines,
+                }
+            )
             global_index += 1
             current_slide_index += 1
 
     return slides
+
+
+def render_single_slide(
+    slide: dict[str, Any],
+    output_path: Path,
+    settings: dict[str, Any],
+    title_bg_path: Path | None = None,
+    content_bg_path: Path | None = None,
+) -> None:
+    slide_width = max(1, int(settings.get("slide_width", 1920)))
+    slide_height = max(1, int(settings.get("slide_height", 1080)))
+    size = (slide_width, slide_height)
+
+    title_font_size = int(settings.get("title_font_size", 96))
+    title_font_min = int(settings.get("title_font_min", 60))
+    body_font = _load_font(settings.get("body_font_path", ""), int(settings.get("body_font_size", 72)))
+    label_font = _load_font(settings.get("label_font_path", ""), int(settings.get("label_font_size", 48)))
+    subtitle_font = _load_font(
+        settings.get("label_font_path", ""), max(28, int(settings.get("label_font_size", 48)) - 14)
+    )
+
+    text_color = settings.get("text_color", "#F8F7F2")
+    stroke_color = settings.get("stroke_color", "#1A1A1A")
+    stroke_width = int(settings.get("stroke_width", 6))
+    line_spacing = float(settings.get("line_spacing", 0.22))
+    centered_sections = {s.lower() for s in settings.get("centered_sections", [])}
+
+    title_box = settings.get("title_box", [120, 230, 1080, 700])
+    label_pos = settings.get("label_pos", [120, 120])
+    content_box = settings.get("content_box", [140, 220, 1640, 760])
+
+    kind = slide.get("kind", "content")
+    label = slide.get("label", "Section")
+    title = slide.get("title", "")
+    subtitle = slide.get("subtitle", "")
+
+    if kind == "title":
+        image = _load_background(title_bg_path, size)
+        draw = ImageDraw.Draw(image)
+        draw.text(
+            (label_pos[0], label_pos[1]),
+            label,
+            font=label_font,
+            fill=text_color,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_color,
+        )
+        fitted_font, wrapped = _fit_title_font(
+            title,
+            settings.get("title_font_path", ""),
+            title_font_size,
+            title_font_min,
+            title_box[2],
+            title_box[3],
+            line_spacing,
+        )
+        ascent, descent = fitted_font.getmetrics()
+        line_height = ascent + descent + int((ascent + descent) * line_spacing)
+        title_block_height = line_height * max(1, len(wrapped))
+        subtitle_lines = _wrap_text(subtitle, subtitle_font, title_box[2], ImageDraw.Draw(Image.new("RGB", (10, 10))))
+        sub_ascent, sub_descent = subtitle_font.getmetrics()
+        sub_line_height = sub_ascent + sub_descent + int((sub_ascent + sub_descent) * line_spacing)
+        subtitle_block_height = sub_line_height * len(subtitle_lines) if subtitle else 0
+        gap = 18 if subtitle else 0
+        total_height = title_block_height + gap + subtitle_block_height
+        start_y = title_box[1] + (title_box[3] - total_height) // 2
+        cursor_y = _draw_lines_at_y(
+            image,
+            wrapped,
+            title_box[0],
+            title_box[2],
+            start_y,
+            fitted_font,
+            text_color,
+            stroke_color,
+            stroke_width,
+            line_spacing,
+            align="center",
+        )
+        if subtitle:
+            _draw_lines_at_y(
+                image,
+                subtitle_lines,
+                title_box[0],
+                title_box[2],
+                cursor_y + gap,
+                subtitle_font,
+                text_color,
+                stroke_color,
+                max(2, stroke_width - 2),
+                line_spacing,
+                align="center",
+            )
+        image.save(output_path, format="JPEG", quality=92)
+        return
+
+    body_lines = slide.get("body", [])
+    if isinstance(body_lines, str):
+        body_lines = [line for line in body_lines.splitlines()]
+    heading_text = title if label.lower() in centered_sections and title else label
+    prep_draw = ImageDraw.Draw(Image.new("RGB", (10, 10), "#000"))
+    prepared = _prepare_lines(body_lines, body_font, content_box[2], prep_draw)
+    ascent, descent = body_font.getmetrics()
+    line_height = ascent + descent + int((ascent + descent) * line_spacing)
+    blank_height = max(10, int(line_height * 0.45))
+    pages = _paginate_lines(prepared, line_height, blank_height, content_box[3])
+    page = pages[0] if pages else []
+
+    frame = _load_background(content_bg_path, size)
+    _draw_wrapped_text(
+        frame,
+        page,
+        (content_box[0], content_box[1], content_box[2], content_box[3]),
+        body_font,
+        text_color,
+        stroke_color,
+        stroke_width,
+        line_spacing,
+        align="center" if label.lower() in centered_sections else "left",
+        center_vertical=True,
+    )
+    if heading_text:
+        header_draw = ImageDraw.Draw(frame)
+        header_draw.text(
+            (content_box[0], label_pos[1]),
+            heading_text,
+            font=label_font,
+            fill=text_color,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_color,
+        )
+    frame.save(output_path, format="JPEG", quality=92)
