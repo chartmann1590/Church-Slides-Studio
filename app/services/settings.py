@@ -13,7 +13,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "verify_prompt": (
         "You are a strict slide QA reviewer. Check whether any text is cut off, "
         "missing, overlapping, or too close to the edges. Reply with JSON only: "
-        '{"ok": true|false, "issues": ["..."]}.'
+        '{"ok": true|false, "issues": ["..."], "recommendations": ["..."]}.'
     ),
     "title_font_path": "",
     "body_font_path": "",
@@ -35,26 +35,40 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 
-def _env_int(name: str, fallback: int) -> int:
+def _env_int(name: str) -> int | None:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
-        return fallback
+        return None
     try:
         return int(raw)
     except ValueError:
-        return fallback
+        return None
 
 
 def _env_settings() -> dict[str, Any]:
-    return {
-        "ollama_base_url": os.getenv("OLLAMA_BASE_URL", DEFAULT_SETTINGS["ollama_base_url"]),
-        "ollama_model": os.getenv("OLLAMA_MODEL", DEFAULT_SETTINGS["ollama_model"]),
-        "title_font_path": os.getenv("TITLE_FONT_PATH", DEFAULT_SETTINGS["title_font_path"]),
-        "body_font_path": os.getenv("BODY_FONT_PATH", DEFAULT_SETTINGS["body_font_path"]),
-        "label_font_path": os.getenv("LABEL_FONT_PATH", DEFAULT_SETTINGS["label_font_path"]),
-        "slide_width": _env_int("SLIDE_WIDTH", DEFAULT_SETTINGS["slide_width"]),
-        "slide_height": _env_int("SLIDE_HEIGHT", DEFAULT_SETTINGS["slide_height"]),
-    }
+    settings: dict[str, Any] = {}
+    base_url = os.getenv("OLLAMA_BASE_URL")
+    if base_url and base_url.strip():
+        settings["ollama_base_url"] = base_url
+    model = os.getenv("OLLAMA_MODEL")
+    if model and model.strip():
+        settings["ollama_model"] = model
+    title_font = os.getenv("TITLE_FONT_PATH")
+    if title_font and title_font.strip():
+        settings["title_font_path"] = title_font
+    body_font = os.getenv("BODY_FONT_PATH")
+    if body_font and body_font.strip():
+        settings["body_font_path"] = body_font
+    label_font = os.getenv("LABEL_FONT_PATH")
+    if label_font and label_font.strip():
+        settings["label_font_path"] = label_font
+    slide_width = _env_int("SLIDE_WIDTH")
+    if slide_width is not None:
+        settings["slide_width"] = slide_width
+    slide_height = _env_int("SLIDE_HEIGHT")
+    if slide_height is not None:
+        settings["slide_height"] = slide_height
+    return settings
 
 
 def _settings_file(data_dir: Path) -> Path:

@@ -30,10 +30,27 @@ KNOWN_LABELS = [
     "Postlude",
     "Cover Image",
 ]
+PLACEHOLDER_TITLE_COMPOSER = "titlecomposer"
+LORDS_PRAYER_PREFIX = "The Lords Prayer"
 
 
 def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def _is_title_composer_placeholder(text: str) -> bool:
+    return bool(text) and _normalize(text) == PLACEHOLDER_TITLE_COMPOSER
+
+
+def _split_lords_prayer(text: str) -> tuple[str, str] | None:
+    trimmed = text.strip()
+    if not trimmed:
+        return None
+    if trimmed.lower().startswith(LORDS_PRAYER_PREFIX.lower()):
+        remainder = trimmed[len(LORDS_PRAYER_PREFIX) :].strip()
+        remainder = remainder.lstrip(" -:").strip()
+        return LORDS_PRAYER_PREFIX, remainder
+    return None
 
 
 def _looks_like_label(text: str) -> bool:
@@ -56,7 +73,10 @@ def _detect_header(line: str) -> tuple[str, str, bool]:
     normalized = _normalize(cleaned)
     for label in sorted(KNOWN_LABELS, key=len, reverse=True):
         if normalized.startswith(_normalize(label)):
-            remainder = cleaned[len(label) :].strip()
+            post_label = cleaned[len(label) :]
+            remainder = post_label.strip()
+            if _is_title_composer_placeholder(remainder):
+                remainder = ""
             return label, remainder, True
     if line.strip().startswith("*"):
         return cleaned, "", True
@@ -133,6 +153,20 @@ def build_slide_specs(sections: list[dict[str, Any]], settings: dict[str, Any]) 
         if title and person_title:
             display_title = label
             subtitle = title
+        lords_from_label = _split_lords_prayer(label)
+        lords_from_title = _split_lords_prayer(title)
+        if lords_from_label or lords_from_title:
+            display_title = LORDS_PRAYER_PREFIX
+            if title and not lords_from_title:
+                subtitle = title
+            else:
+                remainder = ""
+                if lords_from_title:
+                    remainder = lords_from_title[1]
+                elif lords_from_label:
+                    remainder = lords_from_label[1]
+                if remainder:
+                    subtitle = remainder
 
         if display_title or subtitle:
             slide_specs.append(
